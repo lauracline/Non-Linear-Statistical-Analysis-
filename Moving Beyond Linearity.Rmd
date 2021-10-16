@@ -1,0 +1,956 @@
+---
+title: "Non-Linear Statistical Analysis"
+author: "Laura Cline"
+date: "16/10/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Non-Linear Modeling 
+
+In this lab, we will analyze the `Wage` data We begin by loading the `ISLR` library, which contains the data. 
+
+```{r}
+library(ISLR)
+attach(Wage)
+```
+
+# Polynomial Regression and Step Functions 
+
+We first fit the model using the following command:
+
+```{r}
+fit = lm(wage ~poly(age,4), data=Wage)
+coef(summary(fit))
+```
+
+This syntax fits a linear model, using the `lm()` function in order to predict `wage` using a fourth-degree polynomial in `age:poly(age,4)`. The `poly()` command allows us to avoid having to write out a long formula with powers of `age`. The function returns a matrix whose columns are a basis of *orthogonal polynomials*, which essentially means that each column is a linear combination of the variables `age`, `age^2`, `age^3`, and `age^4`.
+
+However, we can also use `poly()` to obtain `age`, `age^2`, `age^3`, and `age^4` directly, if we prefer. We can do this by using the `raw=TRUE`argument to the `poly()` function. Later we see that this does not affect the model in a meaningful way - though the choice of basis clearly affects the coefficient estimates, it does not affect the fitted values obtained. 
+
+```{r}
+fit2 = lm(wage~poly(age,4, raw=T), data=Wage)
+coef(summary(fit2))
+```
+
+There are several other equivalent ways of fitting this model, which showcase the flexibility of the formula language in `R`. For example:
+
+```{r}
+fit2a = lm(wage~age+I(age^2)+I(age^3)+I(age^4), data=Wage)
+coef(fit2a)
+```
+
+This simply creates the polynomial basis function on the fly, taking care to protect terms like `age^2` via the *wrapper* function `I()` (the ^ symbol has a special meaning in the formulas).
+
+```{r}
+fit2b = lm(wage~cbind(age, age^2, age^3, age^4), data=Wage)
+```
+
+This does the same more compactly, using the `cbind()` function for building a matrix from a collection of vectors; any function call such as `cbind()` inside a formula also serves as a wrapper. 
+
+We now create a grid of values for `age` at which we want predictions, and then we call the generic `predict()` function, specifying that we want standard errors as well. 
+
+```{r}
+agelims = range(age)
+age.grid = seq(from=agelims[1], to=agelims[2])
+preds = predict(fit, newdata=list(age=age.grid), se=TRUE)
+se.bands = cbind(preds$fit+2 * preds$se.fit, preds$fit - 2 * preds$se.fit)
+```
+
+Finally, we plot the data and add the fit from the degree-4 polynomial. 
+
+```{r}
+par(mfrow=c(1,2), mar=c(4.5, 4.5, 1, 1), oma = c(0,0,4,0))
+plot(age, wage, xlim=agelims, cex=0.5, col='darkgrey')
+title("Degree-4 Polynomial", outer=T)
+lines(age.grid, preds$fit, lwd=2, col="blue")
+matlines(age.grid, se.bands, lwd=1, col="blue", lty=3)
+```
+
+Here the `mar` and `oma` arguments to `par()` allow us to control the margins of the plot, and the `title()` function creates a figure title that spans both subplots. 
+
+We mentioned earlier that whether or not an orthogonal set of basis functions is produced in the `poly()` function will not affect the model obtained in a meaningful way. What do we mean by this? The fitted values obtained in either case are identical:
+
+```{r}
+preds2 = predict(fit2, newdata=list(age=age.grid), se=TRUE)
+max(abs(preds$fit - preds2$fit))
+```
+
+In performing a polynomial regression we must decide on the degree of the polynomial to use. One way to do this is by using hypothesis tests. We now fit models ranging from linear to a degree-5 polynomial and seek to determine the simplest model which is sufficient to explain the relationship between `wage` and `age`. We use the `anova()` function, which performs an *analysis of variance* (ANOVA, using an F-test) in order to test the null hypothesis that the model $M_{1}$ is sufficient to explain the data against the alternative hypothesis that a more complex $M_{2}$ is required. In order to use the `anova()` function, $M_{1}$ and $M_{2}$ must be *nested* models: the predictors of $M_{1}$ must be a subset of the predictors in $M_{2}$. In this case, we fit five different models and sequentially compare the simpler model to the more complex model. 
+
+```{r}
+fit.1 = lm(wage~age, data=Wage)
+fit.2 = lm(wage~poly(age,2), data=Wage)
+fit.3 = lm(wage~poly(age,3), data=Wage)
+fit.4 = lm(wage~poly(age,4), data=Wage)
+fit.5 = lm(wage~poly(age,5), data=Wage)
+anova(fit.1, fit.2, fit.3, fit.4, fit.5)
+```
+
+The p-value comparing the linear `Model 1` to the quadratic `Model 2` is essentially zero ($<10^{-15}$) indicating that a linear fit is not sufficient. Similarily, the p-value comparing the quadratic `Model 2` to the cubic `Model 3` is very low (0.0016), so the quadratic fit is also insufficient. The p-value comparing the cubic and degree-4 polynomials, `Model 3` and `Model 4`, is approximately 5% while the degree-5 polynomial `Model 5` seems unnecessary because its p-value is 0.36. Hence, either a cubic or a quartic polynomial appear to provide a reasonable fit to the data, but lower- or higher-order models are not justified. 
+
+In this case, instead of using the `anova()` function, we could have obtained these p-values more succiently by exploiting the fact that `poly()` creates orthogonal polynomials. 
+
+```{r}
+coef(summary(fit.5))
+```
+
+Notice that the p-values are the same, and in fact the square of the t-statistics are equal to the F-statistics from the anova()` function; for example:
+
+```{r}
+(-11.983)^2
+```
+
+However, the ANOVA methods works whether or not we used orthogonal polynomials; it also works when we have other terms in the model as well. For example, we can use `anova()` to compare these three models:
+
+```{r}
+fit.1 = lm(wage~education + age, data=Wage)
+fit.2 = lm(wage~education + poly(age,2), data=Wage)
+fit.3 = lm(wage~education + poly(age,3), data=Wage)
+anova(fit.1, fit.2, fit.3)
+```
+
+As an alternative to using hypothesis tests and ANOVA, we could choose the polynomial degree using cross-validation. 
+
+Next we consider the task of predicting whether an individual earns more than $250,000 per year. We proceed such as before, except that first we create the appropriate response vector, and then apply the `glm()` function using `family="binomial"` in order to fit a polynomial logistic regression model. 
+
+```{r}
+fit = glm(I(wage>250)~poly(age,4), data=Wage, family=binomial)
+```
+
+Note that we again use the wrapper `I()` to create this binary response variable on the fly. The expression `wage>250` evaluates the logical variable containing the `TRUE`s and `FALSE`s, which `glm()` coerces to binary by setting the `TRUE`s to 1 and `FALSE`s to 0. 
+
+Once again, we make predictions using the `predict()` function. 
+
+```{r}
+preds = predict(fit, newdata=list(age=age.grid), se=T)
+```
+
+However, calculating the confidence intervals is slightly more involved than in the linear regression case. The default prediction type for a `glm()` model is `type="link"`, which is what we use here. This means that we get predictions for the *logit*: that is, we have fit a model of the form:
+
+$log(\frac{Pr(Y = 1|X)}{1 - Pr(Y = 1|X)} =X\beta)$,
+
+and the predictions given are of the form $X\hat{\beta}$. The standard errors given are also of this form. In order to obtain confidence intervals for $Pr(Y = 1|X)$, we use the transformation
+
+$Pr(Y = 1|X) = \frac{exp(X\beta)}{1 + exp(X\beta)}$
+
+```{r}
+pfit = exp(preds$fit) / (1 + exp(preds$fit))
+se.bands.logit = cbind(preds$fit + 2*preds$se.fit, preds$fit - 2 * preds$se.fit)
+se.bands = exp(se.bands.logit) / (1 + exp(se.bands.logit))
+```
+
+Note that we could have directly computed the probabilities by selecting the `type="response"` option in the `predict()` function. 
+
+```{r}
+preds = predict(fit, newdata=list(age=age.grid), type="response", se=T)
+```
+
+However, the corresponding confidence intervals would not have been sensible because we would end up with negative probabilities!
+
+Finally, we make a plot. 
+
+```{r}
+plot(age, I(wage>250), xlim=agelims, type="n", ylim=c(0,2))
+points(jitter(age), I((wage>250/5)), cex=0.5, pch="|", col="darkgrey")
+lines(age.grid, pfit, lwd=2, col="blue")
+matlines(age.grid, se.bands, lwd=1, col="blue", lty=3)
+```
+
+We have drawn the `age` values corresponding to the observations with `wage` values above 250 as gray marks on the top of the plot, and those with `wage` values below 250 are shown as gray marks at the bottom of the plot. We used the `jitter()` function to jitter the `age` values a bit so that observations with the same `age` value do not cover each other up. This is often called a *rug plot*.  
+
+In order to fit a step function, we use the `cut()` function. 
+
+```{r}
+table(cut(age,4))
+```
+```{r}
+fit = lm(wage~cut(age,4), data=Wage)
+coef(summary(fit))
+```
+
+Here `cut()` automatically picked up the cutpoints 33.5, 49, and 64.5 years of age. We could also have specified our own cutpoints directly using the `breaks` option. The function `cut()` returns an ordered categorical variable; the `lm()` function then creates a set of dummy variables for use in the regression. The `age<33.5` category is left out, so the intercept coefficient of $94,158 can be interpreted as the average salary for those under 33.5 years of age, and the other coefficients can be interpreted as the average additional salary for those other age groups. We can produce predictions and plots just as we did in the same of the polynomial fit. 
+
+# Splines 
+
+In order to fit regression splines in `R`, we use the `splines` library. We know that regression splines can be fit by constructing an appropriate matrix of basis functions. The `bs()` function generates an entire matrix of basis functions for splines with the specified set of knots. By default, cubic splines are produced. Fitting `wage` and `age` using a regression spline is simple:
+
+```{r}
+library(splines)
+fit = lm(wage~bs(age, knots=c(25, 40, 60)), data=Wage)
+pred = predict(fit, newdata=list(age=age.grid), se=T)
+plot(age, wage, col="gray")
+lines(age.grid, pred$fit, lwd=2)
+lines(age.grid, pred$fit + 2 * pred$se, lty="dashed")
+lines(age.grid, pred$fit - 2 * pred$se, lty="dashed")
+```
+
+Here we have prespecified knots at ages 25, 40 and 60. This produces a splines with six basis functions. Recall that a cubic splines with three knots has seven degrees of freedom; these degrees of freedom are used up by an intercept, plus six basis functions. We could also use the `df` option to produce a spline with knots at uniform quantiles of data. 
+
+```{r}
+dim(bs(age, knots = c(25, 40, 60)))
+
+```
+```{r}
+dim(bs(age, df=6))
+```
+```{r}
+attr(bs(age, df=6), "knots")
+```
+
+In this case `R` chooses knots at ages 33.75, 42.0 and 51.0, which correspond to the 25th, 50th, and 75th percentiles of `age`. The function `bs()` also has a `degree` argument, so we can fit splines of any degree, rather than the default degree of 3 (which yields a cubic spline). 
+
+In order to instead fit a natural spline, we use the `ns()` function. Here we fit a natural spline with four degrees of freedom. 
+
+```{r}
+fit2 = lm(wage~ns(age, df=4), data=Wage)
+pred2 = predict(fit2, newdata=list(age=age.grid), se=T)
+plot(age, wage, col="gray")
+lines(age.grid, pred2$fit, col="red", lwd=2)
+```
+
+As with the `bs()` function, we could instead specify the knots directly using the `knots` option. 
+
+In order to fit a smoothing spline, we use the `smooth.spline()` function. 
+
+```{r}
+plot(age, wage, xlim=agelims, cex=0.5, col="darkgrey")
+title("Smoothing Spline")
+fit = smooth.spline(age, wage, df=16)
+fit2 = smooth.spline(age, wage, cv=TRUE)
+fit2$df
+lines(fit, col="red", lwd=2)
+lines(fit2, col="blue", lwd=2)
+legend("topright", legend=c("16 DF", "6.8 DF"),
+       col=c("red", "blue", lty=1, lwd=2, cex=0.8))
+```
+
+Notice that in the first call to `smooth.spline()`, we specified `df=16`. The function then determines which value of $\lambda$ leads to 16 degrees of freedom. In the second call to `smooth.spline()`, we select the smoothness level by cross-validation; this results in a value of $\lambda$ that yields 6.8 degrees of freedom. 
+
+In order to perform local regression, we use the `loess()` function. 
+
+```{r}
+plot(age, wage, xlim=agelims, cex=0.5, col="darkgrey")
+title("Local Regression")
+fit = loess(wage~age, span=0.2, data=Wage)
+fit2 = loess(wage~age, span=0.5, data=Wage)
+lines(age.grid, predict(fit, data.frame(age=age.grid)), col="red", lwf=2)
+lines(age.grid, predict(fit2, data.frame(age=age.grid)), col="blue", lwd=2)
+legend("topright", legend=c("Span=0.2", "Span=0.5"), col=c("red", "blue"), lty=1, lwd=2, cex=0.8)
+```
+
+Here we performed local linear regression using the spans 0.2 and 0.5: that is, each neighbourhood consists of 20% and 50% of the observations. The larger the span, the smoother the fit. The `locfit` library can also be used for fitting local regression models in `R`. 
+
+# GAMs
+
+We now fit a GAM to predict `wage` using natural spline functions of `year` and `age`, treating `education` as a qualitative predictor. Since this is just a big linear regression model using an appropriate choice of basis functions, we can somply do this using the `lm()` function. 
+
+```{r}
+gam1 = lm(wage~ns(year,4) + ns(age,5)+education, data=Wage)
+```
+
+We now fit the model using smoothing splines rather than natural splines. In order to fit more general sorts of GAMs, using smoothing splines or other components that cannot be expressed in terms of basis functions and then fit using least squares regression, we will need to use the `gam` library in `R`. 
+
+The `s()` function, which is part of the `gam` library, is used to indicate that we would like to use a smoothing spline. We specify that the function of `year` should have 4 degrees of freedom, and that the function of `age` will have 5 degrees of freedom. Since `education` is qualitative, we leave it as is, and it is converted into four dummy variables. We use the `gam()` function in order to fit a GAM using these components. All of the terms are fit simulataneously, taking each other into account to explain the response. 
+
+```{r}
+#install.packages("gam")
+library(gam)
+gam.m3 = gam(wage~s(year, 4) + s(age,5) + education, data=Wage)
+```
+
+In order to produce the figure, we simply call the `plot()` function. 
+
+```{r}
+par(mfrow = c(1,3))
+plot(gam.m3, se=TRUE, col="blue")
+```
+
+The generic `plot()` function recognizes that `gam.m3` is an object og class `gam`, and invokes the appropriate `plot.gam()` method. Conveniently, even though `gam1` is not a class of `gam` but rather a class of `lm`, we can *still* use `plot.gam()` on it. We can produce the figure using the following expression:
+
+```{r}
+plot.Gam(gam1, se=TRUE, col="red")
+```
+
+Notice here we had to use the `plot.GAM()` rather than the *generic* `plot()` function. 
+
+In these plots, the function of `year` looks rather linear. We can perform a series of ANOVA tests to determine which of these three modles is best: a GAM that excludes `year` ($Model_{1}$), a GAM that uses a linear function of `year` ($Model_{2}$), or a GAM that uses a spline function of `year` ($Model_{3}$). 
+
+```{r}
+gam.m1 = gam(wage ~ s(age,5) + education, data=Wage)
+gam.m2 = gam(wage~year+s(age,5)+education, data=Wage)
+anova(gam.m1, gam.m2, gam.m3, test="F")
+```
+
+We find that there is compelling evidence that a GAM with a linear function of `year` is better than a GAM that does not include `year` at all (p-value = 0.00014). However, there is no evidence that a non-linear function of `year` is needed (p-value = 0.348). In other words, based on the results of this ANOVA, $M_{2}$ is preferred. 
+
+The `summary()` function produces a summary of the gam fit. 
+
+```{r}
+summary(gam.m3)
+```
+
+The p-values for `year` and `age` correspond to the null hypothesis of a linear relationship versus the alternative of a non-linear relationship. The large p-value for `year` reinforces our conclusion from the ANOVA test that a linear function is adequate for this term. However, there is a very clear evidence that a non-linear term is required for `age`. 
+
+We can make predictions from `gam` objects, just like from `lm` objects, using the `predict()` method for the class `gam`. Here we make predictions on the training set. 
+
+```{r}
+preds = predict(gam.m2, newdata=Wage)
+```
+
+We can also use local regression fits as building blocks in a GAM, using the `lo()` functiton. 
+
+```{r}
+gam.lo = gam(wage~s(year, df=4) + lo(age,span=0.7) + education, data=Wage)
+plot.Gam(gam.lo, se=TRUE, col='green')
+```
+
+Here we have used local regression for the `age` term, with a span of 0.7. We can also use the `lo()` function to create interactions before calling the `gam()` function. For example,
+
+```{r}
+gam.lo.i = gam(wage~lo(year, age, span=0.5)+education, data=Wage)
+```
+
+fits two-term model, in which the first term is an interaction between `year` and `age`, fit by a local regression surface. We can plot the resulting two-dimensional surfance if we first install the `akima` package. 
+
+```{r}
+#install.packages("akima")
+library(akima)
+plot(gam.lo.i)
+```
+
+In order to fit a logistic regression GAM, we once again use the `I()` function in constructing the binary response variable, and set `family=binomial`. 
+
+```{r}
+gam.lr = gam(I(wage>250)~year+s(age, df=5)+education, family=binomial, data=Wage)
+par(mfrow=c(1,3))
+plot(gam.lr, se=T, col='green')
+```
+
+It is easy to see that there are no high earners in the `<HS` category:
+
+```{r}
+table(education, I(wage>250))
+```
+
+Hence, we fit a logistic regression GAM using all but this category. This provides more sensible results. 
+
+```{r}
+gam.lr.s = gam(I(wage>250)~year+s(age, df=5)+education, family=binomial, data=Wage, subset=(education!="1. < HS Grad"))
+plot(gam.lr.s, se=T, col='green')
+```
+
+# Excercises 
+
+## Question Three
+
+Suppose we fit a curve with a basis function $b_{1}(X) = X, b_{2}(X) = (X-1)_{2}I(X \ge 1)$. Note that $I(X \ge 1)$ equals 1 for $X \ge 1$ and 0 otherwise. We fit the linear regression model 
+
+$Y = \beta_{0} + \beta_{1}b_{1}(X) + \beta_{2}b_{2}(X) + \epsilon$
+
+and obtain the coefficient estimates $\hat{\beta_{0}} = 1,\hat{\beta_{1}} = 1, \hat{\beta_{2}} = -2$. Sketch the estimated curve between X = -2 and X = 2. Note the intercepts, slopes and other relevant information. 
+
+```{r}
+X = seq(from=-4, to=+4, length.out=500)
+Y = 1 + X - 2 * (X-1)^2 * (X >= 1)
+```
+```{r}
+plot(X, Y, type="l")
+abline(v=1, col='red')
+grid()
+```
+
+## Question Four
+
+Suppose we fit a curve with basis functions $b_{1}X = I(0 \le X \le 2) - (X - 1)I(1 \le X \le 2), b_{2}(X) = (X - 3)I(3 \le X \le 4) + I(4 \le X \le 5)$. We fit the linear regression model
+
+$Y = \beta_{0} + \beta_{1}b_{1}(X) + \beta_{2}b_{2}(X) + \epsilon$
+
+and obtain the coefficient estimates $\hat{\beta_{0}} = 1,\hat{\beta_{1}} = 1, \hat{\beta_{2}} = 3$. Sketch the estimated curve between X = -2 and X = 2. Note the intercepts, slopes, and other relevant information. 
+
+```{r}
+X = seq(from=-2, to=+8, length.out=500)
+```
+```{r}
+# Compute some auxiliary indicator functions:
+I_1 = (X >= 0) & (X <= 2)
+I_2 = (X >= 1) & (X <= 2)
+I_3 = (X >= 3) & (X <= 4)
+I_4 = (X >= 4) & (X <= 5)
+```
+```{r}
+Y = 1 + (I_1 - (X - 1) * I_2) + 3 * ((X - 3) * I_3 + I_4)
+```
+```{r}
+plot(X, Y, type='l')
+grid()
+```
+
+## Question Six
+
+In this excercise, you will further analyze the `Wage` dataset. 
+
+A. Perform polynomial regression to predict `wage` using `age`. Use cross-validation to select the optimal degree *d* for the polynomial. What degree was chosen, and how does this compare to the results of hypothesis testing using ANOVA? Make a plot of the resulting polynomial fit to the data. 
+
+```{r}
+set.seed(0)
+```
+
+```{r}
+# Plot the data to see what it looks like
+with(Wage, plot(age,wage))
+```
+```{r}
+library(boot)
+```
+
+```{r}
+# Perform polynomial regression for various polynomial degrees:
+cv.error = rep(0,10)
+for( i in 1:10 ){ # fit polynomial models of various degrees
+  glm.fit = glm( wage ~ poly(age,i), data=Wage )
+  cv.error[i] = cv.glm( Wage, glm.fit, K=10 )$delta[1]
+}
+```
+
+```{r}
+plot(1:10, cv.error, pch=19, type='b', xlab='degree of polynomial', ylab='CV estimate of the prediction error')
+grid()
+```
+
+```{r}
+# Using the minimal value for the CV error gives the value 10 which seems like too much polynomial (i.e., too wiggly)
+# From the plot, 5 is the point where the curve stops decreasing and starts increasing so we will consider polynomials of this degree
+me = which.min(cv.error)
+me = 5
+```
+
+```{r}
+m = glm(wage ~ poly(age, me), data=Wage)
+```
+
+```{r}
+plot(Wage$age, Wage$wage)
+
+aRng = range(Wage$age)
+
+a_predict = seq(from=aRng[1], to=aRng[2], length.out=100)
+w_predict = predict(m, newdata=list(age=a_predict))
+lines(a_predict, w_predict, col='red')
+```
+
+```{r}
+# Lets consider the ANOVA approach (i.e., a sequence of nested linear models)
+m0 = lm(wage ~ 1, data=Wage)
+m1 = lm(wage ~ poly(age,1), data=Wage)
+m2 = lm(wage ~ poly(age,2), data=Wage)
+m3 = lm(wage ~ poly(age,3), data=Wage)
+m4 = lm(wage ~ poly(age,4), data=Wage)
+m5 = lm(wage ~ poly(age,5), data=Wage)
+anova(m0, m1, m2, m3, m4, m5)
+```
+
+B. Fit a step function to predict `wage` using `age`, and perform cross-validation to choose the optimal number of cuts. Make a plot of the fit obtained. 
+
+```{r}
+# Let's do the same thing with the cut function for fitting a piecewise constant model:
+# We will do cross-validation by hand 
+number_of_bins = c(2, 3, 4, 5, 10)
+nc = length(number_of_bins)
+
+k = 10
+folds = sample(1:k, nrow(Wage), replace=TRUE)
+cv.errors = matrix(NA, k, nc)
+```
+
+```{r}
+# Prepare for the type of factors you might obtain (extend the age range a bit):
+age_range = range(Wage$age)
+age_range[1] = age_range[1] - 1
+age_range[2] = age_range[2] + 1
+```
+
+```{r}
+for(ci in 1:nc){
+  # For each number fo cuts to test
+  nob = number_of_bins[ci] # Number of cuts
+  
+  for(fi in 1:k){
+    # for each fold
+    # In this ugly command we break the "age" variable in the subset of data Wage[folds!=fi,] into "nob" bins that span between the smallest and largest values of age observed over the entire dataset. This allows us to use the function "predict" on age values not seen in the training subset. If we try to "cut" the age variable into bins that are too small they may not contain any ages in them. Thus, I only do cross-validation on a smallish number of bins.
+    fit = glm(wage ~ cut(age, breaks=seq(from=age_range[1], to= age_range[2], length.out=(nob+1))), data=Wage[folds!=fi,])
+    y_hat = predict(fit, newdata=Wage[folds==fi,])
+    cv.errors[fi,ci] = mean((Wage[folds==fi,]$wage - y_hat^2))
+  }
+}
+```
+
+```{r}
+cv.errors.mean = apply(cv.errors, 2, mean)
+cv.errors.stderr = apply(cv.errors, 2, sd) /sqrt(k)
+```
+
+```{r}
+min.cv.index = which.min(cv.errors.mean)
+one_se_up_value = (cv.errors.mean + cv.errors.stderr)[min.cv.index]
+```
+
+```{r}
+# Set up the x-y limits for plotting 
+min_lim = min(one_se_up_value, cv.errors.mean, cv.errors.mean-cv.errors.stderr, cv.errors.mean+cv.errors.stderr) * 0.9
+
+max_lim = max(one_se_up_value, cv.errors.mean, cv.errors.mean-cv.errors.stderr, cv.errors.mean+cv.errors.stderr) * 1.1
+```
+
+```{r}
+plot(number_of_bins, cv.errors.mean, ylim=c(min_lim, max_lim), pch=19, type='b', xlab='number of cut bins', ylab='CV estimate of the prediction error')
+lines(number_of_bins, cv.errors.mean-cv.errors.stderr, lty='dashed')
+lines(number_of_bins, cv.errors.mean-cv.errors.stderr, lty='dashed')
+abline(h=one_se_up_value, col='red')
+grid()
+```
+
+```{r}
+# Fit the optimal model using all data
+nob = 3
+fit = glm(wage ~ cut(age, breaks = seq(from=age_range[1], to=age_range[2], length.out=(nob+1))), data=Wage)
+```
+
+```{r}
+plot(Wage$age, Wage$wage)
+
+aRng = range(Wage$age)
+
+a_predict = seq(from=aRng[1], to=aRng[2], length.out=100)
+w_predict = predict(fit, newdata=list(age=a_predict))
+lines(a_predict, w_predict, col='red', lw=4)
+```
+
+## Question Nine
+
+This question uses the variable `dis` (the weighted mean of distance to five Boston employment centers) and `nox` (nitrogen oxides concentration in parts per 10 million) from the `Boston` data. We will treat `dis` as the predictor and `nox` as the response. 
+
+A. Use the `poly()` function to fit a cubic polynomial regression to predict `nox` and `dis`. Report the regression output, and plot the resulting data and polynomial fits. 
+
+```{r}
+library(MASS)
+set.seed(0)
+```
+
+```{r}
+m = lm(nox ~ poly(dis,3), data=Boston)
+```
+
+```{r}
+plot(Boston$dis, Boston$nox, xlab='dis', ylab= 'nox', main='third degree polynomial fit')
+
+dis_range = range(Boston$dis)
+dis_samples = seq(from=dis_range[1], to=dis_range[2], length.out=100)
+y_hat = predict(m, newdata=list(dis=dis_samples))
+
+lines(dis_samples, y_hat, col='red')
+grid()
+```
+
+B. Plot the polynomial fit for a range of different polynomial degrees (say, from 1 to 10), and report the associated residual sum of squares. 
+
+C. Perform cross-validation or another approach to select the optimal degree for the polynomial, and explain your results. 
+
+```{r}
+d_max = 10
+```
+
+```{r}
+# The training RSS:
+training_rss = rep(NA,d_max)
+for( d in 1:d_max ){
+  m = lm( nox ~ poly(dis,d), data=Boston )
+  training_rss[d] = sum( ( m$residuals )^2 )
+}
+```
+
+```{r}
+# The RSS estimated using cross-valdiation:
+k = 10
+folds = sample( 1:k, nrow(Boston), replace=TRUE ) 
+cv.rss.test = matrix( NA, k, d_max )
+cv.rss.train = matrix( NA, k, d_max )
+```
+
+```{r}
+for( d in 1:d_max ){
+  for( fi in 1:k ){ # for each fold
+    fit = lm( nox ~ poly(dis,d), data=Boston[folds!=fi,] )
+
+    y_hat = predict( fit, newdata=Boston[folds!=fi,] )
+    cv.rss.train[fi,d] = sum( ( Boston[folds!=fi,]$nox - y_hat )^2 ) 
+
+    y_hat = predict( fit, newdata=Boston[folds==fi,] )
+    cv.rss.test[fi,d] = sum( ( Boston[folds==fi,]$nox - y_hat )^2 )
+  }
+}
+```
+
+```{r}
+cv.rss.train.mean = apply(cv.rss.train,2,mean)
+cv.rss.train.stderr = apply(cv.rss.train,2,sd)/sqrt(k)
+```
+
+```{r}
+cv.rss.test.mean = apply(cv.rss.test,2,mean)
+cv.rss.test.stderr = apply(cv.rss.test,2,sd)/sqrt(k)
+```
+
+```{r}
+min_value = min( c(cv.rss.test.mean,cv.rss.train.mean) )
+max_value = max( c(cv.rss.test.mean,cv.rss.train.mean) )
+```
+
+```{r}
+plot( 1:d_max, cv.rss.train.mean, xlab='polynomial degree', ylab='RSS', col='red', pch=19, type='b', ylim=c(min_value,max_value) )
+lines( 1:d_max, cv.rss.test.mean, col='green', pch=19, type='b' )
+grid()
+legend( "topright", legend=c("train RSS","test RSS"), col=c("red","green"), lty=1, lwd=2 )
+```
+
+D. Use the `bs()` function to fit a regression spline to predict `nox` using `dis`. Report the output for the fit using four degrees of freedom. How did you choose the knots? Plot the resulting fit. 
+
+E. Now fit a regression spline for a range of degrees of freedom, and plot the resulting fits and report the resulting RSS. Describe the results obtained. 
+
+F. Perform cross-validation or another approach in order to select the best degrees of freedom for a regression spline on this data. Describe your results. 
+
+```{r}
+m = lm(nox ~ bs(dis, df=4), data=Boston)
+```
+
+```{r}
+plot(Boston$dis, Boston$nox, xlab='dis', ylab='nox', main='bs with df=4 fit')
+
+dis_range = range(Boston$dis)
+dis_samples = seq(from=dis_range[1], to=dis_range[2], length.out=100)
+y_hat = predict(m, newdata=list(dis=dis_samples))
+
+lines(dis_samples, y_hat, col='red')
+grid()
+```
+
+```{r}
+dof_choices = c(3, 4, 5, 10, 15, 20)
+n_dof_choices = length(dof_choices)
+```
+
+```{r}
+# The RSS estimated using cross validation 
+k = 5
+folds = sample(1:k, nrow(Boston), replace=TRUE)
+cv.rss.test = matrix(NA, k, n_dof_choices)
+cv.rss.train = matrix(NA, k, n_dof_choices)
+```
+
+```{r}
+for( di in 1:n_dof_choices ){
+  for( fi in 1:k ){ # for each fold
+    fit = lm( nox ~ bs(dis,df=dof_choices[di]), data=Boston[folds!=fi,] )
+
+    y_hat = predict( fit, newdata=Boston[folds!=fi,] )
+    cv.rss.train[fi,di] = sum( ( Boston[folds!=fi,]$nox - y_hat )^2 ) 
+
+    y_hat = predict( fit, newdata=Boston[folds==fi,] )
+    cv.rss.test[fi,di] = sum( ( Boston[folds==fi,]$nox - y_hat )^2 )
+  }
+}
+```
+
+```{r}
+cv.rss.train.mean = apply(cv.rss.train,2,mean)
+cv.rss.train.stderr = apply(cv.rss.train,2,sd)/sqrt(k)
+```
+
+```{r}
+cv.rss.test.mean = apply(cv.rss.test,2,mean)
+cv.rss.test.stderr = apply(cv.rss.test,2,sd)/sqrt(k)
+```
+
+```{r}
+min_value = min( c(cv.rss.test.mean,cv.rss.train.mean) )
+max_value = max( c(cv.rss.test.mean,cv.rss.train.mean) )
+```
+
+```{r}
+plot(dof_choices, cv.rss.train.mean, xlab='spline dof', ylab='RSS', col='red', pch=19, type='b', ylim=c(min_value, max_value))
+lines(dof_choices, cv.rss.test.mean, col='green', pch=19, type='b')
+grid()
+legend("topright", legend=c("train RSS", "test RSS"), col=c("red", "green"), lty=1, lwd=2)
+```
+
+## Question Ten
+
+This question relates to the `College` dataset. 
+
+A. Split the data into a training set and a test set. Using out-of-state tuition as the response and the other variables as predictors, perform forward stepwise selection on the training set in order to identify a satisfactory model that uses a subset of the predictors. 
+
+```{r}
+# install.packages("leaps")
+library(leaps)
+library(glmnet)
+
+set.seed(0)
+```
+
+```{r}
+# Divide the dataset into three parts: training==1, validation==2, and test==3
+dataset_part = sample(1:3, nrow(College), replace=T, prob=c(0.5, 0.25, 0.25))
+```
+
+```{r}
+p = ncol(College)-1
+```
+
+```{r}
+# Fit subsets of various sizes 
+regfit.forward = regsubsets(Outstate ~., data=College[dataset_part==1,], nvmax=p, method="forward")
+print(summary(regfit.forward))
+```
+
+```{r}
+reg.summary = summary(regfit.forward)
+```
+
+```{r}
+# Test the trained models on the validation set
+validation.mat = model.matrix(Outstate ~ ., data=College[dataset_part==2,])
+val.errors = rep(NA,p)
+for (ii in 1:p){
+  coefi = coef(regfit.forward, id=ii)
+  pred=validation.mat[,names(coefi)] %*% coefi
+  val.errors[ii] = mean((College$Outstate[dataset_part==2] - pred)^2)
+}
+```
+
+```{r}
+print("forward selection validation errors")
+print(val.errors)
+
+k = which.min(val.errors)
+print(sprintf("smallest validation error for the index = %d, with coefficients given by", k))
+print(coef(regfit.forward, id=k))
+```
+
+```{r}
+plot(val.errors, xlab="Number of variables", ylab="Validation MSE", pch=19, type='b')
+abline(v=k, col='red')
+grid()
+```
+
+```{r}
+# Predict the best model found on the testing set 
+test.mat = model.matrix(Outstate ~., data=College[dataset_part==3,])
+coefi = coef(regfit.forward, id=k)
+pred = test.mat[,names(coefi)] %*% coefi
+test.error = mean((College$Outstate[dataset_part==3] - pred)^2)
+print("test error on the optimal subset")
+print(test.error)
+```
+
+```{r}
+k = 3
+coefi = coef(regfit.forward, id=k)
+pred = test.mat[,names(coefi)] %*% coefi
+test.error = mean((College$Outstate[dataset_part==3] - pred)^2)
+print("test erro on the k=3 subset")
+print(test.error)
+```
+
+B. Fit a GAM on the training data using out-of-state tuition as a response and the features selected in the previous step as the predictors. Plot the results and explain your findings. 
+
+```{r}
+# Combine the training and validation into one "training" dataset
+dataset_part[dataset_part==2] = 1
+dataset_part[dataset_part==3] = 2
+```
+
+```{r}
+gam.model = gam(Outstate ~ s(Expend,4) + s(Room.Board,4) + Private, data=College[dataset_part==1,])
+```
+
+```{r}
+par(mfrow=c(1,3))
+plot(gam.model, se=TRUE, col='blue')
+par(mgrow=c(1,1))
+```
+
+```{r}
+# Predict the GAM performance on the test dataset
+y_hat = predict(gam.model, newdata=College[dataset_part==2,])
+MSE = mean((College[dataset_part==2,]$Outstate - y_hat)^2)
+print("gam testing set (MSE) error")
+print(MSE)
+```
+
+# Question Eleven 
+
+GAMs are generally fit using a *backfitting* approach. The idea behind backfitting is actually quite simple. We will now explore backfitting in the context of multiple linear regression. 
+
+Suppose that we would like to perform multiple linear regression, but we do not have the software to do so. Instead, we only have software to perform simple linear regression. Therefore, we take the following iterative approach: we repeatedly hold all but one coefficient estimate fixed as its current value, and update only the coefficient estimate using a simple linear regression. The process is continued until *convergence* - that is, until the coefficient estimates stop changing. 
+
+We will now try this out on a toy example. 
+
+A. Generate a response Y and two predictors $X_{1}$ and $X_{2}$, with n = 100. 
+
+```{r}
+n = 100
+
+X1 = rnorm(n)
+X2  = rnorm(n)
+```
+
+```{r}
+# The true values of beta_i:
+beta_0 = 3.0
+beta_1 = 5.0
+beta_2 = -0.2
+```
+
+```{r}
+Y = beta_0 + beta_1 * X1 + beta_2 * X2 + 0.1 * rnorm(n)
+```
+
+B. Initiative $\hat{\beta_{1}}$ to take on a value of your choice. It does not matter what value you choose. 
+
+```{r}
+beta_1_hat = -3.0
+```
+
+C. Keep $\hat{\beta_{1}}$ fixed, fit the model
+
+$Y - \hat{\beta_{1}}X_{1} = \beta_{0} + \beta_{2}X_{2} + \epsilon$. 
+
+D. Keeping $\hat{\beta_{2}}$ fixed, fit the model:
+
+$Y - \hat{\beta_{2}}X_{2} = \beta_{0} + \beta_{1}X_{1} + \epsilon$. 
+
+E. Write a for loop to repeat (C) and (D) 1,000 times. Report the estimates of $\hat{\beta_{0}}$, $\hat{\beta_{1}}$ and $\hat{\beta_{2}}$ at each iteration of the for loop. Create a plot in which each of these values is displayed, with $\hat{\beta_{0}}$, $\hat{\beta_{1}}$ and $\hat{\beta_{2}}$ each shown in a different colour. 
+
+```{r}
+n_iters = 10
+
+beta_0_estimates = c()
+beta_1_estimates = c()
+beta_2_estimates = c()
+
+for(ii in 1:n_iters){
+  a = Y = beta_1_hat * X1
+  beta_2_hat = lm(a ~ X2)$coef[2]
+  
+  a = Y - beta_2_hat * X2
+  m = lm(a ~ X1)
+  beta_1_hat = m$coef[2]
+  
+  beta_0_hat = m$coef[1]
+  
+  beta_0_estimates = c(beta_0_estimates, beta_0_hat)
+  beta_1_estimates = c(beta_1_estimates, beta_1_hat)
+  beta_2_estimates = c(beta_2_estimates, beta_2_hat)
+}
+```
+
+```{r}
+# Get the coefficient estimates using lm
+m = lm(Y ~ X1 + X2)
+```
+
+
+
+```{r}
+old_par = par(mfrow = c(1,3))
+
+plot(1:n_iters, beta_0_estimates, main='beta_0', pch=19, ylim=c(beta_0*0.999, max(beta_0_estimates)))
+abline(h=beta_0, col='green', lwd=4)
+abline(h=m$coefficients[1], col='gray', lwd=4)
+grid()
+
+plot(1:n_iters, beta_1_estimates, main='beta_1', pch=19)
+abline(h=beta_1, col='green', lwd=4)
+abline(h=m$coefficients[2], col='gray', lwd=4)
+grid()
+
+plot(1:n_iters, beta_2_estimates, main='beta_2', pch=19)
+abline(h=beta_2, col='green', lwd=4)
+abline(h=m$coefficients[3], col='gray', lwd=4)
+grid()
+
+par(old_par)
+```
+
+## Question Twelve
+
+The problem is a continuation of the previous excercise. In a toy example with p = 100, show that one can approximate the multiple linear regression coefficient estimates by repeatedly performing simple linear regression in a backfitting procedure. How many backfitting iterations are required in order to obtain a good approximation to the multiple regression coefficient estimates? Create a plot to justify your answer. 
+
+```{r}
+p = 100
+n = 100
+```
+
+```{r}
+# Generate some regression coefficients beta_0, beta_1,..., beta_p
+beta_truth = rnorm( p+1 )
+```
+
+```{r}
+# Generate some data (append a column of ones)
+Xs = c( rep(1,n), rnorm( n*p ) )
+X = matrix( data=Xs, nrow=n, ncol=(p+1), byrow=FALSE )
+```
+
+```{r}
+# Produce the response
+Y = X %*% beta_truth + 0.1 * rnorm(n)
+```
+
+```{r}
+# Get the true estimated coefficient estimate using lm
+m = lm( Y ~ X - 1 )
+beta_lm = m$coeff 
+```
+
+```{r}
+# Estimate beta_i using backfitting 
+beta_hat = rnorm( p+1 ) # initial estimate of beta's is taken to be random 
+ # Initial estimate of beta's is taken to be random 
+```
+
+```{r}
+n_iters = 10
+```
+
+```{r}
+beta_estimates = matrix( data=rep(NA,n_iters*(p+1)), nrow=n_iters, ncol=(p+1) )
+beta_differences_with_truth = rep(NA,n_iters)
+beta_differences_with_LS = rep(NA,n_iters)
+for( ii in 1:n_iters ){
+  for( pi in 0:p ){ # for beta_0, beta_1, ... beta_pi ... beta_p
+
+    # Perform simple linear regression on the variable X_pi (assuming we know all other values of beta_pi): 
+    # 
+    a = Y - X[,-(pi+1)] %*% beta_hat[-(pi+1)] # remove all predictors except beta_0 
+
+    if( pi==0 ){
+      m = lm( a ~ 1 ) # estimate a constant 
+      beta_hat[pi+1] = m$coef[1] 
+    }else{
+      m = lm( a ~ X[,pi+1] ) # estimate the slope on X_pi
+      beta_hat[pi+1] = m$coef[2] 
+    }
+
+  }
+  beta_estimates[ii,] = beta_hat
+  beta_differences_with_truth[ii] = sqrt( sum( ( beta_hat - beta_truth )^2 ) )
+  beta_differences_with_LS[ii] = sqrt( sum( ( beta_hat - beta_lm )^2 ) )
+}
+```
+
+
+
